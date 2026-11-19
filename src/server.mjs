@@ -117,6 +117,18 @@ export class Tunnel {
   }
 }
 
+// Counts bytes and decodes once at the end: a UTF-8 character can straddle chunks. null: over
+// limit. Reads to the end either way: leaving the loop early resets the socket before a 413 is sent.
+export async function readBody(req, limit = 1_000_000) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size <= limit) chunks.push(chunk);
+  }
+  return size > limit ? null : Buffer.concat(chunks).toString("utf8");
+}
+
 export function runHttp(cfg) {
   const token = Buffer.from(readFileSync(expand(cfg.tokenFile), "utf8").trim());
   if (token.length < 32) throw new Error("token must be at least 32 characters");
@@ -164,11 +176,8 @@ export function runHttp(cfg) {
     }
     if (req.method !== "POST") return reply(res, 405, rpcError(-32000, "method not allowed"), { Allow: "POST, DELETE" });
 
-    let body = "";
-    for await (const chunk of req) {
-      body += chunk;
-      if (body.length > 1_000_000) return reply(res, 413, rpcError(-32000, "request too large"));
-    }
+    const body = await readBody(req);
+    if (body === null) return reply(res, 413, rpcError(-32000, "request too large"));
     let msg;
     try { msg = JSON.parse(body); } catch { return reply(res, 400, rpcError(-32700, "parse error")); }
     if (Array.isArray(msg) || typeof msg !== "object" || msg === null) return reply(res, 400, rpcError(-32600, "single JSON-RPC message expected"));
