@@ -117,16 +117,16 @@ export class Tunnel {
   }
 }
 
-// Counts bytes and decodes once at the end: a UTF-8 character can straddle chunks. null: over limit.
+// Counts bytes and decodes once at the end: a UTF-8 character can straddle chunks. null: over
+// limit. Reads to the end either way: leaving the loop early resets the socket before a 413 is sent.
 export async function readBody(req, limit = 1_000_000) {
   const chunks = [];
   let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > limit) return null;
-    chunks.push(chunk);
+    if (size <= limit) chunks.push(chunk);
   }
-  return Buffer.concat(chunks).toString("utf8");
+  return size > limit ? null : Buffer.concat(chunks).toString("utf8");
 }
 
 export function runHttp(cfg) {

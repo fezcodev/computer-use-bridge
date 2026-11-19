@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Engine-free tests: the native-tool pass-through and its app allowlist (with fake engines and a
 // fake MCP server), config migration, CLI arguments, service files and permission parsing.
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
+import { request as httpRequest } from "node:http";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -373,5 +374,27 @@ console.log(JSON.stringify(out));
   assert(body === json, "a character split across chunks decodes intact");
   const big = Buffer.from("é".repeat(6));
   assert(await readBody(Readable.from([big]), 11) === null && await readBody(Readable.from([big]), 12) === "é".repeat(6), "the size limit counts bytes, not characters");
+
+  // Through the real HTTP server: an oversized POST gets its 413 rather than a reset connection.
+  const dir = mkdtempSync(join(tmpdir(), "cub-http-"));
+  const port = 47900 + Math.floor(Math.random() * 90);
+  writeFileSync(join(dir, "token"), "t".repeat(40), { mode: 0o600 });
+  writeFileSync(join(dir, "config.json"), JSON.stringify({ host: "127.0.0.1", port, tokenFile: join(dir, "token"), apps: { engine: "off" }, tabs: { engine: "open-browser-use", browser: "brave" } }));
+  const srv = spawn(process.execPath, [new URL("../bin/computer-use-bridge.mjs", import.meta.url).pathname, "serve", "--config", join(dir, "config.json")], { stdio: ["ignore", "ignore", "pipe"] });
+  try {
+    await new Promise((resolve, reject) => { srv.stderr.on("data", (d) => /serving on/.test(d) && resolve()); srv.on("exit", (c) => reject(new Error(`serve exited ${c}`))); });
+    const post = (bytes) => new Promise((resolve) => {
+      const q = httpRequest({ host: "127.0.0.1", port, path: "/mcp", method: "POST", headers: { Authorization: `Bearer ${"t".repeat(40)}`, "Content-Type": "application/json" } }, (res) => { res.resume(); res.on("end", () => resolve(res.statusCode)); });
+      q.on("error", (e) => resolve(e.code));
+      q.end(bytes);
+    });
+    const codes = [];
+    for (let i = 0; i < 10; i++) codes.push(await post(Buffer.alloc(1_500_000, 97)));
+    assert(codes.every((c) => c === 413), `oversized POSTs get 413, not a reset (${[...new Set(codes)].join(", ")})`);
+    assert(await post(Buffer.from("{")) === 400, "the server still answers after oversized POSTs");
+  } finally {
+    srv.kill();
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
