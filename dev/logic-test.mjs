@@ -5,12 +5,13 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Readable } from "node:stream";
 import { configPath, migrateConfig, normalizeConfig, parseArgs } from "../src/config.mjs";
 import { remoteCommand } from "../src/connect.mjs";
 import { extensionCheck, ocuPermissions } from "../src/engines/install.mjs";
 import { McpChild } from "../src/engines/mcp-child.mjs";
 import { obuChild, ocuChild } from "../src/engines/native.mjs";
-import { handle } from "../src/server.mjs";
+import { handle, readBody } from "../src/server.mjs";
 import { launchdReload, plist, stableNode, unit, versionedNode } from "../src/service.mjs";
 import { uninstall, uninstallFiles } from "../src/setup.mjs";
 import { Session, parseAppLine } from "../src/session.mjs";
@@ -361,5 +362,16 @@ console.log(JSON.stringify(out));
     rmSync(dir, { recursive: true, force: true });
   }
   assert(configPath("./x.json") === join(process.cwd(), "x.json") && configPath("~/c.json").startsWith("/") && !configPath("~/c.json").includes("~"), "config paths become absolute for the service");
+}
+
+// 8. HTTP request bodies: multibyte characters split across chunks survive; the limit counts bytes.
+{
+  const json = JSON.stringify({ text: "héllo 👋 日本" });
+  const bytes = Buffer.from(json);
+  const split = bytes.indexOf(Buffer.from("👋")) + 2;
+  const body = await readBody(Readable.from([bytes.subarray(0, split), bytes.subarray(split)]));
+  assert(body === json, "a character split across chunks decodes intact");
+  const big = Buffer.from("é".repeat(6));
+  assert(await readBody(Readable.from([big]), 11) === null && await readBody(Readable.from([big]), 12) === "é".repeat(6), "the size limit counts bytes, not characters");
 }
 
