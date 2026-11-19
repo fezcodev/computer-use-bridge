@@ -108,7 +108,8 @@ if (runApps) {
     return m ? String(m[1]) : undefined;
   };
   const clear = () => button("All Clear") ?? button("Clear");
-  const display = (text = tree) => (/Edit field[^\n]*\n\s*(?:\d+ )?(?:static)?text (.*)/.exec(text)?.[1] ?? "?").replace(/[\u200e\u200f\u202a-\u202e]/g, "").trim();
+  // The value is on the next text line, or (newer Calculator) after "Edit field" on the same line.
+  const display = (text = tree) => (/Edit field[^\n]*\n\s*(?:\d+ )?(?:static)?text (.*)/.exec(text)?.[1] ?? /Edit field (\S.*)/.exec(text)?.[1] ?? "?").replace(/[\u200e\u200f\u202a-\u202e]/g, "").trim();
 
   console.log("\n# Apps (open-computer-use on Calculator)");
   const missing = OCU.filter((t) => !tools.includes(t));
