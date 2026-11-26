@@ -75,6 +75,10 @@ export class McpChild {
     });
   }
 
+  notify(method, params = {}) {
+    this.send({ jsonrpc: "2.0", method, params });
+  }
+
   // tools/call, one at a time.
   call(name, args, timeoutMs = 120_000) {
     const run = () => this.request("tools/call", { name, arguments: args }, timeoutMs);

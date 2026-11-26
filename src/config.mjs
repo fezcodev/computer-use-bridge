@@ -147,6 +147,8 @@ export function normalizeConfig(raw, { file = "config", approveAll = false, apps
   cfg.maxSessions ??= 4;
   cfg.engineIdleMinutes ??= 10;
   if (typeof cfg.engineIdleMinutes !== "number" || !(cfg.engineIdleMinutes >= 0)) throw new Error("engineIdleMinutes must be a number >= 0 (0 disables)");
+  cfg.turnEndSeconds ??= 120;
+  if (typeof cfg.turnEndSeconds !== "number" || !(cfg.turnEndSeconds >= 0)) throw new Error("turnEndSeconds must be a number >= 0 (0 disables)");
   return cfg;
 }
 

@@ -146,6 +146,7 @@ edit it and restart the service (`computer-use-bridge setup --yes` rewrites and 
 | `idleMinutes` | Close a client session after this long without a request (default 30). |
 | `maxSessions` | Most client sessions at once; the least recently used is closed beyond this (default 4). |
 | `engineIdleMinutes` | Stop a session's engines after this long without a call (default 10; 0 never). The next call starts them again. |
+| `turnEndSeconds` | Tell open-computer-use the turn ended after this long without a call, for clients that do not send `notifications/turn-ended` themselves (default 120; 0 never). |
 | `ocuVisualCursor` | `false` hides open-computer-use's on-screen cursor for app actions; unset keeps the engine's default (shown). |
 | `ocuCommand`, `obuCommand` | Engine paths, if they are not on the service's `PATH`. |
 | `obuSocket` | open-browser-use socket to use when several browsers run its extension (`ls /tmp/open-browser-use`). |
@@ -180,6 +181,9 @@ Read the engines' documentation for how to use them. The bridge changes only thi
   name) and not on the hard-deny list; `list_apps` lists allowed apps only. An open-computer-use
   tool that takes no app could not be checked, so it is not offered.
 - Each client session has its own open-browser-use session, and so its own tab group.
+- A client's `notifications/turn-ended` reaches open-computer-use, which then drops the turn's query
+  indexes, cursor and agent-display windows. Clients that never send it (pi) get one after
+  `turnEndSeconds` without a call.
 
 The bridge pins the engine versions it was tested with (`setup` installs them), so a new engine
 release reaches agents after it passes the bridge's live test.

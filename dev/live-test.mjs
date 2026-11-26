@@ -125,6 +125,13 @@ if (runApps) {
   check("press_key 9", !r.isError && display(r.text) === "9", r, `display ${display(r.text)}`);
   r = keep(await call("press_key", { app, key: "Escape" }));
   check("press_key Escape clears", !r.isError && display(r.text) === "0", r, `display ${display(r.text)}`);
+  // The client's turn end reaches open-computer-use, which then drops the turn's query indexes.
+  r = await call("query", { app, text: "7", role: "button", exact: true });
+  const q = /"index"\s*:\s*(\d+)/.exec(r.text)?.[1];
+  check("query finds the 7 button", !r.isError && q !== undefined, r, first(r));
+  await rpc("notifications/turn-ended", {}, true);
+  r = await call("click", { app, element_index: q });
+  check("turn-ended drops the turn's query indexes", r.isError && /expired|no longer available/.test(r.text), r, first(r));
   r = await call("type_text", { app, text: "7" });
   note("type_text outside a text field", r.isError ? `engine says: ${first(r)}` : "accepted");
   r = await call("get_app_state", { app: "com.apple.Terminal" });

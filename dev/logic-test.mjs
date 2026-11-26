@@ -45,6 +45,7 @@ function fakeEngines() {
       if (name === "list_apps") return { content: [{ type: "text", text: APPS }], isError: false };
       return { content: [{ type: "text", text: `${kind}:${name}` }, { type: "image", mimeType: "image/png", data: "iVBO" }], structuredContent: { n: 1 }, isError: false };
     },
+    notify: (method) => calls.push({ kind, notify: method }),
     close: async function () { this.dead = true; },
   });
   return { calls, starts, start: async (kind) => { starts[kind]++; return engine(kind); } };
@@ -196,6 +197,66 @@ setInterval(() => {}, 1000);
   const list = await handle(s, { jsonrpc: "2.0", id: 2, method: "tools/list" });
   const bad = await handle(s, { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "click", arguments: { app: "Ghostty" } } });
   assert(list.result.tools.length === 3 && bad.result.isError, "tools/list and a refused call");
+}
+
+// 4c. Turn ends reach open-computer-use: the client's own, else after turnEndSeconds without a call.
+{
+  const f = fakeEngines();
+  const ends = () => f.calls.filter((c) => c.notify === "notifications/turn-ended").map((c) => c.kind);
+  const cfg = (s) => macConfig({ apps: { engine: "open-computer-use", allow: ["com.hnc.Discord"] }, tabs: { engine: "open-browser-use" }, turnEndSeconds: s });
+  const s = new Session(cfg(0), "t", { start: f.start });
+  assert(await handle(s, { jsonrpc: "2.0", method: "notifications/turn-ended" }) === null && !ends().length, "a turn end before any app call sends nothing");
+  await s.callTool("open_tab", {});
+  await handle(s, { jsonrpc: "2.0", method: "notifications/turn-ended" });
+  assert(!ends().length, "tab calls alone open no app turn");
+  await s.callTool("get_app_state", { app: "Discord" });
+  await handle(s, { jsonrpc: "2.0", method: "notifications/turn-ended", params: {} });
+  await handle(s, { jsonrpc: "2.0", method: "notifications/turn-ended" });
+  assert(same(ends(), ["apps"]), "the client's turn end reaches open-computer-use once");
+  await s.close();
+  // A turn end that arrives while an app call runs is sent after that call.
+  let finish;
+  const h = fakeEngines();
+  const hEnds = () => h.calls.filter((c) => c.notify === "notifications/turn-ended").length;
+  const held = new Session(cfg(0), "t", { start: async (kind) => { const e = await h.start(kind); const call = e.call; e.call = async (n, a) => { const r = await call(n, a); if (n === "click") await new Promise((ok) => { finish = ok; }); return r; }; return e; } });
+  await held.listTools();
+  const running = held.callTool("click", { app: "com.hnc.Discord", element_index: "1" });
+  while (!finish) await new Promise((r) => setTimeout(r, 1));
+  await handle(held, { jsonrpc: "2.0", method: "notifications/turn-ended" });
+  const early = hEnds();
+  finish();
+  await running;
+  assert(early === 0 && hEnds() === 1 && h.calls.at(-1).notify, "a turn end during an app call is sent once the call is done");
+  // A tab call while the end is held does not drop it.
+  finish = null;
+  const again = held.callTool("click", { app: "com.hnc.Discord", element_index: "1" });
+  while (!finish) await new Promise((r) => setTimeout(r, 1));
+  await handle(held, { jsonrpc: "2.0", method: "notifications/turn-ended" });
+  await held.callTool("open_tab", {});
+  const beforeDone = hEnds();
+  finish();
+  await again;
+  assert(beforeDone === 1 && hEnds() === 2, "a tab call during a held turn end does not drop it");
+  await held.close();
+  const g = fakeEngines();
+  const gEnds = () => g.calls.filter((c) => c.notify === "notifications/turn-ended").length;
+  const t = new Session(cfg(0.05), "t", { start: g.start });
+  await t.callTool("get_app_state", { app: "Discord" });
+  await new Promise((r) => setTimeout(r, 30));
+  await t.callTool("open_tab", {});
+  await new Promise((r) => setTimeout(r, 30));
+  assert(gEnds() === 0, "any call within turnEndSeconds keeps the turn open");
+  await new Promise((r) => setTimeout(r, 60));
+  assert(gEnds() === 1, "turnEndSeconds without a call ends the turn");
+  await new Promise((r) => setTimeout(r, 80));
+  assert(gEnds() === 1, "an ended turn is not ended again");
+  await t.callTool("click", { app: "Discord", element_index: "1" });
+  await t.close();
+  await new Promise((r) => setTimeout(r, 80));
+  assert(gEnds() === 1, "a closed session sends no turn end");
+  let threw = false;
+  try { normalizeConfig({ apps: { engine: "open-computer-use", allow: [] }, turnEndSeconds: -1 }, { appsSupported: true }); } catch (e) { threw = /turnEndSeconds/.test(e.message); }
+  assert(threw && normalizeConfig({ apps: { engine: "open-computer-use", allow: [] } }, { appsSupported: true }).turnEndSeconds === 120, "turnEndSeconds defaults to 120 and must be >= 0");
 }
 
 // 4c. Config: 0.x and 1.x files load as 2.0.
