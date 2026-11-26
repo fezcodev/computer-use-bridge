@@ -65,6 +65,9 @@ export class Session {
   turnEnded(why) {
     clearTimeout(this.turnTimer);
     if (!this.turnOpen) return;
+    // A call still running belongs to this turn: end it once that call is done.
+    if (this.busy) return void (this.endAfterCalls = why);
+    this.endAfterCalls = null;
     this.turnOpen = false;
     const c = this.engines.get("apps");
     if (!c || c.dead) return;
@@ -75,6 +78,7 @@ export class Session {
   async stopEngines(why) {
     clearTimeout(this.turnTimer);
     this.turnOpen = false;
+    this.endAfterCalls = null;
     const running = [...this.engines.values()];
     this.engines.clear();
     if (running.length) log(`[${this.label}] stopping engines (${why})`);
@@ -156,6 +160,7 @@ export class Session {
     this.lastUsed = Date.now();
     this.busy++;
     clearTimeout(this.turnTimer);
+    this.endAfterCalls = null; // a new call starts the next turn; the idle timer ends it
     try {
       const entry = (await this.loadCatalog()).get(name);
       if (!entry) throw new BadInput(`unknown tool ${name}`);
@@ -175,7 +180,8 @@ export class Session {
       this.busy--;
       this.lastUsed = Date.now();
       const ms = this.cfg.turnEndSeconds * 1000;
-      if (this.turnOpen && ms > 0 && !this.busy && !this.closed) this.turnTimer = setTimeout(() => this.turnEnded("idle"), ms).unref();
+      if (this.endAfterCalls && !this.busy) this.turnEnded(this.endAfterCalls);
+      else if (this.turnOpen && ms > 0 && !this.busy && !this.closed) this.turnTimer = setTimeout(() => this.turnEnded("idle"), ms).unref();
     }
   }
 }
