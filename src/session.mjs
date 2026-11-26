@@ -160,11 +160,14 @@ export class Session {
     this.lastUsed = Date.now();
     this.busy++;
     clearTimeout(this.turnTimer);
-    this.endAfterCalls = null; // a new call starts the next turn; the idle timer ends it
     try {
       const entry = (await this.loadCatalog()).get(name);
       if (!entry) throw new BadInput(`unknown tool ${name}`);
-      if (entry.kind === "apps") this.turnOpen = true;
+      // A new app call starts the next turn, which the idle timer ends; tab calls leave a held end.
+      if (entry.kind === "apps") {
+        this.turnOpen = true;
+        this.endAfterCalls = null;
+      }
       const a = args && typeof args === "object" && !Array.isArray(args) ? args : {};
       const c = await this.engine(entry.kind);
       if (entry.kind === "tabs") return await c.call(name, a);

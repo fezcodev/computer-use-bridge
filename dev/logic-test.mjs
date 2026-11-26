@@ -227,6 +227,16 @@ setInterval(() => {}, 1000);
   finish();
   await running;
   assert(early === 0 && hEnds() === 1 && h.calls.at(-1).notify, "a turn end during an app call is sent once the call is done");
+  // A tab call while the end is held does not drop it.
+  finish = null;
+  const again = held.callTool("click", { app: "com.hnc.Discord", element_index: "1" });
+  while (!finish) await new Promise((r) => setTimeout(r, 1));
+  await handle(held, { jsonrpc: "2.0", method: "notifications/turn-ended" });
+  await held.callTool("open_tab", {});
+  const beforeDone = hEnds();
+  finish();
+  await again;
+  assert(beforeDone === 1 && hEnds() === 2, "a tab call during a held turn end does not drop it");
   await held.close();
   const g = fakeEngines();
   const gEnds = () => g.calls.filter((c) => c.notify === "notifications/turn-ended").length;
