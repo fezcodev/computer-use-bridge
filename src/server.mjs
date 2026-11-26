@@ -10,6 +10,7 @@ import { Session, textResult } from "./session.mjs";
 
 export async function handle(session, msg) {
   const { id, method, params } = msg;
+  if (id === undefined && method === "notifications/turn-ended") session.turnEnded("client");
   if (id === undefined || !method) return null; // notifications and stray responses
   const ok = (result) => ({ jsonrpc: "2.0", id, result });
   const fail = (code, message) => ({ jsonrpc: "2.0", id, error: { code, message } });

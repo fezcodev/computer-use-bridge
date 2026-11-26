@@ -28,6 +28,7 @@ export class Session {
     this.catalog = null; // tool name -> { kind, tool }
     this.lastUsed = Date.now();
     this.busy = 0;
+    this.turnOpen = false; // an open-computer-use call since the last turn end
     // Engines hold screen capture and tab attachments while they run, so they stop when idle;
     // the session stays open and restarts them on the next call.
     const idleMs = cfg.engineIdleMinutes * 60_000;
@@ -58,7 +59,22 @@ export class Session {
     return this.starting.get(kind);
   }
 
+  // open-computer-use keeps per-turn state (query indexes, its cursor, windows parked on the agent
+  // display, a Locked Use lease) until notifications/turn-ended. A client's own is passed on; one
+  // that sends none (pi) gets it after turnEndSeconds without a call.
+  turnEnded(why) {
+    clearTimeout(this.turnTimer);
+    if (!this.turnOpen) return;
+    this.turnOpen = false;
+    const c = this.engines.get("apps");
+    if (!c || c.dead) return;
+    c.notify("notifications/turn-ended");
+    log(`[${this.label}] turn ended (${why})`);
+  }
+
   async stopEngines(why) {
+    clearTimeout(this.turnTimer);
+    this.turnOpen = false;
     const running = [...this.engines.values()];
     this.engines.clear();
     if (running.length) log(`[${this.label}] stopping engines (${why})`);
@@ -68,6 +84,7 @@ export class Session {
   async close() {
     this.closed = true;
     clearInterval(this.reaper);
+    clearTimeout(this.turnTimer);
     await this.stopEngines("closed");
     await Promise.allSettled([...this.starting.values()]);
   }
@@ -138,9 +155,11 @@ export class Session {
   async callTool(name, args) {
     this.lastUsed = Date.now();
     this.busy++;
+    clearTimeout(this.turnTimer);
     try {
       const entry = (await this.loadCatalog()).get(name);
       if (!entry) throw new BadInput(`unknown tool ${name}`);
+      if (entry.kind === "apps") this.turnOpen = true;
       const a = args && typeof args === "object" && !Array.isArray(args) ? args : {};
       const c = await this.engine(entry.kind);
       if (entry.kind === "tabs") return await c.call(name, a);
@@ -155,6 +174,8 @@ export class Session {
     } finally {
       this.busy--;
       this.lastUsed = Date.now();
+      const ms = this.cfg.turnEndSeconds * 1000;
+      if (this.turnOpen && ms > 0 && !this.busy && !this.closed) this.turnTimer = setTimeout(() => this.turnEnded("idle"), ms).unref();
     }
   }
 }
